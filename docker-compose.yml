@@ -1,4 +1,66 @@
 services:
+  # Auth Service PostgreSQL Database
+  auth-postgres:
+    image: postgres:15-alpine
+    container_name: medicare-auth-postgres
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: auth_user
+      POSTGRES_PASSWORD: auth_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - auth_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth_user"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - medicare-network
+
+  # Auth Service
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: medicare-auth-service
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - DB_HOST=auth-postgres
+      - DB_PORT=5432
+      - DB_NAME=auth_db
+      - DB_USER=auth_user
+      - DB_PASSWORD=auth_password
+      - JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+      - JWT_REFRESH_SECRET=your-super-secret-refresh-key-change-this-in-production
+      - FRONTEND_URL=http://localhost:5173
+    restart: unless-stopped
+    depends_on:
+      auth-postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3001/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - medicare-network
+
   # API Gateway
   api-gateway:
     build:
@@ -8,6 +70,8 @@ services:
     ports:
       - "8080:80"
     restart: unless-stopped
+    depends_on:
+      - auth-service
     healthcheck:
       test:
         [
@@ -44,6 +108,9 @@ services:
       - api-gateway
     networks:
       - medicare-network
+
+volumes:
+  auth_postgres_data:
 
 networks:
   medicare-network:
